@@ -1,0 +1,30 @@
+flask
+flask-cors
+opencv-python
+numpy
+tensorflow
+
+
+# so i did all the changes and place my email id there in env file now let's start our projct 
+
+# 1. first we have to go into the backend folder and make sure we install node modules by npm i 
+# 2. then we have to start our backend server where all mail , mongodb verification is done so for this i start npm run start 
+# 3. then you got confirmation on console that mongodb server is connected
+
+# now we have to start frontend part also
+
+# 1. start new terminal 
+# 2. make sure you don't stop previous terminal
+# 3. now we have to start python but before we have to install python libraries by command by this command all the required libraries got install
+# 4. now we have to start python server by this will start python server
+
+
+# now we have to start react part of our application 
+# 1. start new terminal
+# 2. write command npm i make sure you are in frontend folder 
+# 3. because we have to start all the servers
+# 4. now after installing you can start by npm run dev
+# 5. you got local , network -- you have to click on local which is http://localhost:5173
+
+
+# so this is how you can start your model and this task now you can select what model you want to start so this is how you can start your project
