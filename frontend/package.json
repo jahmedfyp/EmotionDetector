@@ -5,10 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "python": "python app.py",
-    "start": "concurrently \"npm run dev\" \"npm run python\"",
-    "install-python": "pip install -r requirements.txt",
-    "install-all": "npm install && npm run install-python",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -38,7 +34,6 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "concurrently": "^9.1.2",
     "eslint": "^9.9.1",
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
