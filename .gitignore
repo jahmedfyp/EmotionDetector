@@ -41,10 +41,7 @@ var/
 /frontend/dist
 /frontend/build
 
-# Keras model files (often large binary files)
-*.keras
-*.h5
-*.hdf5
+
 
 # Data files
 *.csv
