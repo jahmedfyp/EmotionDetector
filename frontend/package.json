@@ -7,6 +7,8 @@
     "dev": "vite",
     "python": "python app.py",
     "start": "concurrently \"npm run dev\" \"npm run python\"",
+    "install-python": "pip install -r requirements.txt",
+    "install-all": "npm install && npm run install-python",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
