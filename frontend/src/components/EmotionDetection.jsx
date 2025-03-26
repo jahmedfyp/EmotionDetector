@@ -16,12 +16,15 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
+import axios from 'axios'
 
 const modelPaths = {
   'doctor-patient': 'my_model.keras',
   'teacher-student': 'my_model.keras',
   
 };
+
+const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL;
 
 const SessionReport = ({ report }) => {
   if (!report) return null;
@@ -81,31 +84,28 @@ export default function EmotionDetection() {
   useEffect(() => {
     const connectToBackend = async () => {
       try {
-        const response = await fetch(`http://localhost:5005/load-model`, {
+        const response = await axios({
           method: 'POST',
+          url: `${PYTHON_API_URL}/load-model`,
           headers: {
             'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
           },
-          credentials: 'include',
-          body: JSON.stringify({
-            modelPath: modelPaths[modelId]
-          })
-        })
-        
-        if (!response.ok) {
-          const data = await response.json()
-          throw new Error(data.error || 'Failed to load model')
-        }
-        
-        setIsConnected(true)
-      } catch (err) {
-        setError(err.message)
-        setIsConnected(false)
-      }
-    }
+          withCredentials: false // Change to true if using cookies
+        });
 
-    connectToBackend()
-  }, [modelId])
+        if (response.data.status === 'running') {
+          // Model loaded successfully
+          startVideoFeed();
+        }
+      } catch (err) {
+        console.error('Error connecting to Python backend:', err);
+        setError('Failed to connect to emotion detection service');
+      }
+    };
+
+    connectToBackend();
+  }, [modelId]);
 
   const startTracking = async () => {
     try {
@@ -169,6 +169,31 @@ export default function EmotionDetection() {
     };
   }, [stopTracking, isTracking, sessionId]);
 
+  const startVideoFeed = async () => {
+    try {
+      const response = await axios({
+        method: 'GET',
+        url: `${PYTHON_API_URL}/video_feed`,
+        responseType: 'blob',
+        headers: {
+          'Accept': 'multipart/x-mixed-replace',
+          'Access-Control-Allow-Origin': '*'
+        },
+        withCredentials: false
+      });
+
+      const videoUrl = URL.createObjectURL(response.data);
+      // Update your video element source
+      const videoElement = document.getElementById('video-feed');
+      if (videoElement) {
+        videoElement.src = videoUrl;
+      }
+    } catch (err) {
+      console.error('Error starting video feed:', err);
+      setError('Failed to start video feed');
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
       <Button
@@ -219,7 +244,7 @@ export default function EmotionDetection() {
                 >
                   {isTracking && (
                     <img 
-                      src={`http://localhost:5005/video_feed?session_id=${sessionId}&model_type=${modelId}`}
+                      id="video-feed"
                       alt="Emotion Detection Feed"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />

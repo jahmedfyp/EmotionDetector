@@ -17,16 +17,21 @@ app.config.update(
     SESSION_COOKIE_SAMESITE='None',
     SESSION_COOKIE_HTTPONLY=True
 )
-app.secret_key = 'your-secret-key-change-this'
 
 CORS(app, 
      supports_credentials=True,
      resources={
          r"/*": {
-             "origins": ["http://localhost:5173", "http://localhost:5005"],
+             "origins": [
+                "http://localhost:5173",  # Local development
+                "https://emotion-detector-git-main-johan-ahmeds-projects.vercel.app",  # Vercel deployment
+                "https://emotion-detector.vercel.app",  # Add your Vercel domain
+                "https://your-app-name.vercel.app"  # Replace with your actual Vercel domain
+             ],
              "methods": ["GET", "POST", "OPTIONS"],
-             "allow_headers": ["Content-Type"],
+             "allow_headers": ["Content-Type", "Authorization"],
              "expose_headers": ["Content-Type"],
+             "supports_credentials": True,
              "max_age": 3600
          }
      })
@@ -417,6 +422,29 @@ def stop_session():
     del active_sessions[session_id]
 
     return jsonify(report)
+
+@app.after_request
+def after_request(response):
+    # Get the origin from the request
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:5173",
+        "https://emotion-detector-git-main-johan-ahmeds-projects.vercel.app",
+        "https://emotion-detector.vercel.app",
+        "https://your-app-name.vercel.app"  # Replace with your actual Vercel domain
+    ]
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    
+    return response
+
+@app.route('/status')
+def status():
+    return jsonify({"status": "running"})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5005)

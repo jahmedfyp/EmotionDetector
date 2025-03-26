@@ -48,6 +48,8 @@ import {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
+const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL;
+
 const Analytics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -67,10 +69,11 @@ const Analytics = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch('http://localhost:5005/analytics', { // Change port from 5000 to 5005
+      const response = await fetch(`${PYTHON_API_URL}/analytics`, {
         credentials: 'include',
         headers: {
           'Accept': 'application/json',
+          'Access-Control-Allow-Credentials': 'true'
         }
       });
       
