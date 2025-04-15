@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom'
 import { Box, AppBar, Toolbar, Typography, IconButton, Button } from '@mui/material'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import BarChartIcon from '@mui/icons-material/BarChart'
 import HomeIcon from '@mui/icons-material/Home'
+import LogoutIcon from '@mui/icons-material/Logout'
+import Home from './components/Home'
 import Auth from './components/Auth'
 import ModelSelection from './components/ModelSelection'
 import EmotionDetection from './components/EmotionDetection'
@@ -11,7 +13,16 @@ import Analytics from './components/Analytics'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-function AuthenticatedApp() {
+// Protected route component
+const ProtectedRoute = ({ children }) => {
+  const { user } = useAuth();
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+  return children;
+};
+
+function MainApp() {
   const { user, logout } = useAuth();
 
   const handleLogout = async () => {
@@ -39,6 +50,7 @@ function AuthenticatedApp() {
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               Emotion Detector
             </Typography>
+            
             <Button 
               component={Link}
               to="/"
@@ -48,33 +60,65 @@ function AuthenticatedApp() {
             >
               Home
             </Button>
-            <Button 
-              component={Link}
-              to="/analytics"
-              color="inherit" 
-              startIcon={<BarChartIcon />}
-              sx={{ mx: 1 }}
-            >
-              Analytics
-            </Button>
-            <Typography variant="body1" sx={{ mx: 1 }}>
-              {user.email}
-            </Typography>
-            <Button 
-              color="inherit" 
-              onClick={handleLogout}
-              sx={{ ml: 1 }}
-            >
-              Logout
-            </Button>
+            
+            {user && (
+              <>
+                <Button 
+                  component={Link}
+                  to="/analytics"
+                  color="inherit" 
+                  startIcon={<BarChartIcon />}
+                  sx={{ mx: 1 }}
+                >
+                  Analytics
+                </Button>
+                <Typography variant="body1" sx={{ mx: 1 }}>
+                  {user.email}
+                </Typography>
+                <Button 
+                  color="inherit" 
+                  onClick={handleLogout}
+                  startIcon={<LogoutIcon />}
+                  sx={{ ml: 1 }}
+                >
+                  Logout
+                </Button>
+              </>
+            )}
+            
+            {!user && (
+              <Button 
+                component={Link}
+                to="/auth"
+                color="inherit" 
+                sx={{ ml: 1 }}
+              >
+                Login
+              </Button>
+            )}
           </Toolbar>
         </AppBar>
 
         <Box sx={{ flex: 1, p: 0 }}>
           <Routes>
-            <Route path="/" element={<ModelSelection />} />
-            <Route path="/detection/:modelId" element={<EmotionDetection />} />
-            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/select-role/:roleId" element={<RoleRedirect />} />
+            <Route path="/model-selection" element={
+              <ProtectedRoute>
+                <ModelSelection />
+              </ProtectedRoute>
+            } />
+            <Route path="/detection/:modelId" element={
+              <ProtectedRoute>
+                <EmotionDetection />
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <Analytics />
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Box>
@@ -83,17 +127,31 @@ function AuthenticatedApp() {
   );
 }
 
-function AppContent() {
+// Component to handle role selection and redirection
+function RoleRedirect() {
   const { user } = useAuth();
-  return !user ? <Auth /> : <AuthenticatedApp />;
+  const navigate = useNavigate();
+  const { roleId } = useParams();
+  
+  useEffect(() => {
+    if (user) {
+      // User is logged in, redirect to model selection
+      navigate('/model-selection', { state: { role: roleId } });
+    } else {
+      // User is not logged in, redirect to auth
+      navigate('/auth', { state: { redirectTo: '/model-selection', role: roleId } });
+    }
+  }, [user, roleId, navigate]);
+  
+  return <Box sx={{ p: 4, textAlign: 'center' }}>Redirecting...</Box>;
 }
 
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <MainApp />
     </AuthProvider>
   );
 }
 
-export default App
+export default App;

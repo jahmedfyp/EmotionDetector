@@ -19,12 +19,77 @@ import StopIcon from '@mui/icons-material/Stop'
 import axios from 'axios'
 
 const modelPaths = {
-  'doctor-patient': 'my_model.keras',
-  'teacher-student': 'my_model.keras',
-  
+  'doctor-patient': 'models/emotion_model.keras',
+  'teacher-student': 'models/emotion_model.keras',
+  'general-analysis': 'models/emotion_model.keras'
 };
 
-const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL;
+const PYTHON_API_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:5005';
+
+async function loadModel(modelPath) {
+  try {
+    const response = await fetch('/load-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelPath }),
+      credentials: 'include'
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      // Show error message to user
+      console.error('Model loading error:', data.error);
+      return { success: false, error: data.error };
+    }
+    
+    console.log('Model loaded successfully:', data);
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error loading model:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function checkModelStatus() {
+  try {
+    const response = await fetch('/model-status', {
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      return { loaded: false };
+    }
+    
+    const data = await response.json();
+    return { loaded: data.status === 'loaded', info: data.model_info };
+  } catch (error) {
+    console.error('Error checking model status:', error);
+    return { loaded: false, error: error.message };
+  }
+}
+
+async function fetchAvailableModels() {
+  try {
+    const response = await fetch('/check-models', {
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      return { success: false, models: [] };
+    }
+    
+    const data = await response.json();
+    return { 
+      success: true, 
+      models: data.available_models || [],
+      cwd: data.cwd
+    };
+  } catch (error) {
+    console.error('Error fetching models:', error);
+    return { success: false, models: [], error: error.message };
+  }
+}
 
 const SessionReport = ({ report }) => {
   if (!report) return null;
@@ -76,6 +141,7 @@ export default function EmotionDetection() {
   const { modelId } = useParams()
   const navigate = useNavigate()
   const [isConnected, setIsConnected] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [isTracking, setIsTracking] = useState(false)
   const [sessionId, setSessionId] = useState(null)
@@ -84,38 +150,69 @@ export default function EmotionDetection() {
   useEffect(() => {
     const connectToBackend = async () => {
       try {
-        const response = await axios({
+        console.log('Connecting to backend at:', PYTHON_API_URL);
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch(`${PYTHON_API_URL}/load-model`, {
           method: 'POST',
-          url: `${PYTHON_API_URL}/load-model`,
           headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
+            'Content-Type': 'application/json'
+            // Don't add Access-Control-Allow-Origin header here - it's causing the CORS error
           },
-          withCredentials: false // Change to true if using cookies
+          credentials: 'include', // Add this for cookies
+          body: JSON.stringify({
+            modelPath: modelPaths[modelId] || '/models/emotion_model.keras'
+          })
         });
-
-        if (response.data.status === 'running') {
-          // Model loaded successfully
-          startVideoFeed();
+        
+        console.log('Model loading response status:', response.status);
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to load model');
         }
+        
+        const data = await response.json();
+        console.log('Model loading success:', data);
+        
+        setIsConnected(true);
+        // Start the video feed automatically once connected
+        await startVideoFeed();
       } catch (err) {
         console.error('Error connecting to Python backend:', err);
-        setError('Failed to connect to emotion detection service');
+        setError(`Could not connect to server: ${err.message}`);
+        setIsConnected(false);
+      } finally {
+        setLoading(false);
       }
     };
 
     connectToBackend();
   }, [modelId]);
 
+  const startSession = async () => {
+    const modelStatus = await checkModelStatus();
+    
+    if (!modelStatus.loaded) {
+      // Show error and prompt to load model
+      alert('No model is loaded. Please load a model first.');
+      return;
+    }
+    
+    // Proceed with starting session...
+    startTracking();
+  };
+
   const startTracking = async () => {
     try {
-      const response = await fetch('http://localhost:5005/start-session', {
+      setError(null);
+      const response = await fetch(`${PYTHON_API_URL}/start-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
-        body: JSON.stringify({ modelType: modelId })  // Add modelType to request
+        body: JSON.stringify({ modelType: modelId })
       });
       
       if (!response.ok) {
@@ -127,22 +224,24 @@ export default function EmotionDetection() {
       setSessionId(data.sessionId);
       setIsTracking(true);
       setSessionReport(null);
+      
+      // Refresh video feed
+      startVideoFeed();
     } catch (err) {
+      console.error('Error starting tracking:', err);
       setError(err.message);
     }
   }
 
-  // Move stopTracking to useCallback to prevent unnecessary recreations
   const stopTracking = useCallback(async () => {
     try {
       if (!sessionId) return;
       
-      const response = await fetch('http://localhost:5005/stop-session', {
+      const response = await fetch(`${PYTHON_API_URL}/stop-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({ sessionId })
       });
       
@@ -156,6 +255,7 @@ export default function EmotionDetection() {
       setIsTracking(false);
       setSessionId(null);
     } catch (err) {
+      console.error('Error stopping tracking:', err);
       setError(err.message);
     }
   }, [sessionId]);
@@ -171,22 +271,12 @@ export default function EmotionDetection() {
 
   const startVideoFeed = async () => {
     try {
-      const response = await axios({
-        method: 'GET',
-        url: `${PYTHON_API_URL}/video_feed`,
-        responseType: 'blob',
-        headers: {
-          'Accept': 'multipart/x-mixed-replace',
-          'Access-Control-Allow-Origin': '*'
-        },
-        withCredentials: false
-      });
-
-      const videoUrl = URL.createObjectURL(response.data);
-      // Update your video element source
+      console.log('Starting video feed from:', `${PYTHON_API_URL}/video_feed?${sessionId ? `session_id=${sessionId}&` : ''}model_type=${modelId}`);
+      
+      // For img tag, set the src directly
       const videoElement = document.getElementById('video-feed');
       if (videoElement) {
-        videoElement.src = videoUrl;
+        videoElement.src = `${PYTHON_API_URL}/video_feed?${sessionId ? `session_id=${sessionId}&` : ''}model_type=${modelId}`;
       }
     } catch (err) {
       console.error('Error starting video feed:', err);
@@ -198,7 +288,7 @@ export default function EmotionDetection() {
     <Container maxWidth="lg" sx={{ mt: 4 }}>
       <Button
         startIcon={<ArrowBackIcon />}
-        onClick={() => navigate('/')}
+        onClick={() => navigate('/model-selection')}
         sx={{ mb: 2 }}
       >
         Back to Model Selection
@@ -217,14 +307,19 @@ export default function EmotionDetection() {
               </Typography>
             )}
 
-            {isConnected && (
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress />
+                <Typography sx={{ ml: 2 }}>Connecting to server...</Typography>
+              </Box>
+            ) : isConnected ? (
               <>
                 <Box sx={{ mb: 2 }}>
                   <Button
                     variant="contained"
                     color={isTracking ? "error" : "primary"}
                     startIcon={isTracking ? <StopIcon /> : <PlayArrowIcon />}
-                    onClick={isTracking ? stopTracking : startTracking}
+                    onClick={isTracking ? stopTracking : startSession}
                   >
                     {isTracking ? "Stop Tracking" : "Start Tracking"}
                   </Button>
@@ -239,18 +334,33 @@ export default function EmotionDetection() {
                     position: 'relative',
                     overflow: 'hidden',
                     borderRadius: 2,
-                    boxShadow: 3
+                    boxShadow: 3,
+                    bgcolor: 'black',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center'
                   }}
                 >
-                  {isTracking && (
-                    <img 
-                      id="video-feed"
-                      alt="Emotion Detection Feed"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  )}
+                  <img 
+                    id="video-feed"
+                    alt="Emotion Detection Feed"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
                 </Box>
               </>
+            ) : (
+              <Box sx={{ textAlign: 'center', p: 4 }}>
+                <Typography color="error">
+                  Could not connect to the emotion detection service.
+                </Typography>
+                <Button 
+                  variant="contained" 
+                  onClick={() => window.location.reload()}
+                  sx={{ mt: 2 }}
+                >
+                  Retry Connection
+                </Button>
+              </Box>
             )}
           </Paper>
         </Grid>

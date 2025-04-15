@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Button, TextField, Typography, Container, Alert, CircularProgress
 } from '@mui/material';
@@ -11,9 +12,21 @@ function Auth() {
   const [otp, setOtp] = useState('');
   const [showOtpField, setShowOtpField] = useState(false);
   const [message, setMessage] = useState('');
-  const { loading, error, register, login, verifyOTP, resendOTP } = useAuth();
+  const { loading, error, register, login, verifyOTP, resendOTP, user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get redirect information from location state
+  const redirectTo = location.state?.redirectTo || '/';
+  const role = location.state?.role || null;
 
-  // Clear message after 5 seconds
+  // If user is already logged in, redirect
+  useEffect(() => {
+    if (user) {
+      navigate(redirectTo, { state: { role } });
+    }
+  }, [user, navigate, redirectTo, role]);
+  
   useEffect(() => {
     if (message) {
       const timer = setTimeout(() => setMessage(''), 5000);
@@ -28,7 +41,6 @@ function Auth() {
     try {
       if (showOtpField) {
         const result = await verifyOTP(email, otp);
-        console.log('Verification result:', result);
         
         if (result.success) {
           setMessage('Email verified successfully! Please login.');
@@ -47,6 +59,9 @@ function Auth() {
         if (!isLogin && result.requiresOTP) {
           setShowOtpField(true);
           setMessage('Please check your email for verification code');
+        } else if (isLogin) {
+          // On successful login, navigate to redirect location
+          navigate(redirectTo, { state: { role } });
         }
       }
     } catch (err) {
@@ -57,7 +72,7 @@ function Auth() {
 
   const handleResendOTP = async () => {
     try {
-      const result = await resendOTP(email);
+      await resendOTP(email);
       setMessage('New verification code sent to your email');
     } catch (err) {
       console.error('Resend OTP error:', err);
@@ -71,6 +86,13 @@ function Auth() {
         <Typography component="h1" variant="h5">
           {showOtpField ? 'Verify Email' : (isLogin ? 'Sign In' : 'Sign Up')}
         </Typography>
+
+        {/* Display role-based message */}
+        {role && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Please login to continue as a {role.charAt(0).toUpperCase() + role.slice(1)}
+          </Typography>
+        )}
 
         {(message || error) && (
           <Alert 

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -7,10 +9,38 @@ import {
   CardMedia,
   Typography,
   Button,
-} from '@mui/material'
-import { useNavigate } from 'react-router-dom'
+} from '@mui/material';
 
-const models = [
+// Model definitions for different roles
+const modelsByRole = {
+  doctor: [
+    {
+      id: 'doctor-patient',
+      title: 'Doctor/Patient Analysis',
+      description: 'Detect patient emotions during consultations for better healthcare outcomes',
+      image: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=500',
+    }
+  ],
+  teacher: [
+    {
+      id: 'teacher-student',
+      title: 'Teacher/Student Analysis',
+      description: 'Monitor student engagement and emotional responses during lessons',
+      image: 'https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=500',
+    }
+  ],
+  general: [
+    {
+      id: 'general-analysis',
+      title: 'General Emotion Analysis',
+      description: 'Analyze emotions in various contexts and scenarios',
+      image: 'https://images.unsplash.com/photo-1516387938699-a93567ec168e?auto=format&fit=crop&w=500',
+    }
+  ]
+};
+
+// Default models if no role is provided
+const defaultModels = [
   {
     id: 'doctor-patient',
     title: 'Doctor/Patient',
@@ -27,6 +57,18 @@ const models = [
 
 export default function ModelSelection() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [models, setModels] = useState(defaultModels);
+  const [userRole, setUserRole] = useState(null);
+  
+  useEffect(() => {
+    // Get the role from location state
+    const role = location.state?.role;
+    if (role && modelsByRole[role]) {
+      setModels(modelsByRole[role]);
+      setUserRole(role);
+    }
+  }, [location]);
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -34,13 +76,25 @@ export default function ModelSelection() {
         variant="h4" 
         align="center" 
         gutterBottom
-        sx={{ mb: 4, fontWeight: 500 }}
+        sx={{ mb: 1, fontWeight: 500 }}
       >
         Select Emotion Detection Model
       </Typography>
+      
+      {userRole && (
+        <Typography 
+          variant="h6" 
+          align="center" 
+          color="text.secondary"
+          sx={{ mb: 4 }}
+        >
+          Specialized for {userRole.charAt(0).toUpperCase() + userRole.slice(1)}s
+        </Typography>
+      )}
+      
       <Grid container spacing={4} justifyContent="center">
         {models.map((model) => (
-          <Grid item xs={12} md={6} key={model.id}>
+          <Grid item xs={12} md={userRole ? 8 : 6} key={model.id}>
             <Card 
               sx={{ 
                 height: '100%',

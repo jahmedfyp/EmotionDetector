@@ -15,35 +15,26 @@ app = Flask(__name__)
 app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE='None',
-    SESSION_COOKIE_HTTPONLY=True
+    SESSION_COOKIE_HTTPONLY=True,
+    SECRET_KEY='your-secret-key-here'  # Add a secret key for sessions
 )
 
+# Simple CORS configuration that should work for development
 CORS(app, 
+     origins=["http://localhost:5173", "http://127.0.0.1:5173"],
      supports_credentials=True,
-     resources={
-         r"/*": {
-             "origins": [
-                "http://localhost:5173",  # Local development
-                "https://emotion-detector-git-main-johan-ahmeds-projects.vercel.app",  # Vercel deployment
-                "https://emotion-detector.vercel.app",  # Add your Vercel domain
-                "https://your-app-name.vercel.app"  # Replace with your actual Vercel domain
-             ],
-             "methods": ["GET", "POST", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "expose_headers": ["Content-Type"],
-             "supports_credentials": True,
-             "max_age": 3600
-         }
-     })
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 
 USERS_CSV = 'data/users.csv'
 EMOTIONS_CSV = 'data/emotions.csv'
 
-
+# Ensure directories exist
 os.makedirs('data', exist_ok=True)
+os.makedirs('models', exist_ok=True)
 
-
+# Initialize CSV files if they don't exist
 if not os.path.exists(USERS_CSV):
     pd.DataFrame(columns=['email', 'password']).to_csv(USERS_CSV, index=False)
 if not os.path.exists(EMOTIONS_CSV):
@@ -59,34 +50,116 @@ active_cameras = {}
 def load_model_file(model_path):
     global model, face_cascade
     try:
-        
+        # Check if model file exists
         if not os.path.exists(model_path):
             print(f"Model file not found at: {model_path}")
             return False
+        
+        print(f"Loading model from: {model_path}")
+        
+        # Load the model with error handling - using tf.keras directly
+        try:
+            # Try different approaches for model loading
+            try:
+                # First, try standard load_model
+                model = tf.keras.models.load_model(model_path, compile=False)
+            except Exception as e1:
+                print(f"First attempt failed: {str(e1)}")
+                # Second, try a custom loading approach
+                try:
+                    # Try loading with skip_mismatch option (for incompatible architectures)
+                    model = tf.keras.models.load_model(
+                        model_path, 
+                        compile=False,
+                        options=tf.saved_model.LoadOptions(
+                            experimental_io_device='/job:localhost'
+                        )
+                    )
+                except Exception as e2:
+                    print(f"Second attempt failed: {str(e2)}")
+                    # Last resort: Create a simple model with similar structure
+                    print("Attempting to rebuild model and load weights only")
+                    # Build a basic CNN model
+                    inputs = tf.keras.Input(shape=(96, 96, 3))
+                    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
+                    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                    x = tf.keras.layers.Flatten()(x)
+                    x = tf.keras.layers.Dense(128, activation='relu')(x)
+                    outputs = tf.keras.layers.Dense(8, activation='softmax')(x)
+                    
+                    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+                    try:
+                        model.load_weights(model_path)
+                    except:
+                        return False
             
+            model.compile(
+                optimizer='adam',
+                loss='categorical_crossentropy',
+                metrics=['accuracy']
+            )
+            print("Model loaded successfully")
+        except Exception as e:
+            print(f"Error loading the Keras model: {str(e)}")
+            return False
         
-        model = tf.keras.models.load_model(model_path, compile=False)
-        
-        model.compile(
-            optimizer='rmsprop',
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        if face_cascade.empty():
-            print("Error: Could not load face cascade classifier")
+        # Load face cascade
+        try:
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            if face_cascade.empty():
+                print("Error: Could not load face cascade classifier")
+                return False
+            print("Face cascade loaded successfully")
+        except Exception as e:
+            print(f"Error loading face cascade: {str(e)}")
             return False
             
         return True
         
     except Exception as e:
-        print(f"Error loading model: {str(e)}")
+        print(f"Unexpected error loading model: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
+def validate_model_path(model_path):
+    """Validate and fix model path if necessary"""
+    # If path is already absolute, use it
+    if os.path.isabs(model_path):
+        if os.path.exists(model_path):
+            return model_path
+        else:
+            return None
+    
+    # Try different locations based on relative path
+    potential_paths = [
+        model_path,  # As provided
+        os.path.join(os.getcwd(), model_path),  # Relative to current working directory
+        os.path.join(os.getcwd(), 'models', model_path),  # In models subdirectory
+        os.path.join(os.getcwd(), 'frontend', model_path),  # In frontend subdirectory
+        os.path.join(os.getcwd(), 'frontend', '/models/emotion_model.keras'),  # Fixed path in frontend
+        os.path.join(os.getcwd(), 'backend', 'models', '/models/emotion_model.keras')  # Path in backend/models
+    ]
+    
+    for path in potential_paths:
+        if os.path.exists(path):
+            print(f"Found model at: {path}")
+            return path
+    
+    # If all else fails, see if we can find any .keras files
+    for root, dirs, files in os.walk(os.getcwd()):
+        for file in files:
+            if file.endswith('.keras'):
+                full_path = os.path.join(root, file)
+                print(f"Found potential model file: {full_path}")
+                return full_path
+    
+    return None
+    
 def save_emotion(email, emotion, confidence, model_type, session_id=None):
     try:
         timestamp = datetime.now()
@@ -121,29 +194,76 @@ def save_emotion(email, emotion, confidence, model_type, session_id=None):
         
         
 def process_frame(frame, email, model_type, session_id):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(50, 50))
+    try:
+        if model is None:
+            print("No model loaded. Please load a model first.")
+            return frame
+        
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(50, 50))
+        
+        for (x, y, w, h) in faces:
+            face = frame[y:y + h, x:x + w]
+            face = cv2.resize(face, (96, 96))
+            face = face / 255.0
+            face = np.expand_dims(face, axis=0)
+            
+            # Check model input shape requirements
+            input_shape = model.input_shape
+            if len(input_shape) > 3:  # Model expects batch dimension
+                if input_shape[1:] != (96, 96, 3):
+                    print(f"Warning: Model expects input shape {input_shape} but got (96, 96, 3)")
+            else:  # Model doesn't have batch dimension in shape
+                if input_shape != (96, 96, 3):
+                    print(f"Warning: Model expects input shape {input_shape} but got (96, 96, 3)")
+            
+            prediction = model.predict(face)
+            emotion_idx = np.argmax(prediction)
+            
+            # Ensure emotion_idx is within range
+            if emotion_idx >= len(emotion_labels):
+                emotion_idx = 0
+                print(f"Warning: Prediction index {emotion_idx} out of range. Using default.")
+                
+            emotion = emotion_labels[emotion_idx]
+            confidence = float(prediction[0][emotion_idx])
+            
+            save_emotion(email, emotion, confidence, model_type, session_id)
+            
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            label = f"{emotion} ({confidence:.2f})"
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     
-    for (x, y, w, h) in faces:
-        face = frame[y:y + h, x:x + w]
-        face = cv2.resize(face, (96, 96))
-        face = face / 255.0
-        face = np.expand_dims(face, axis=0)
-        face = np.expand_dims(face, axis=0)
-        
-        prediction = model.predict(face)
-        emotion_idx = np.argmax(prediction)
-        emotion = emotion_labels[emotion_idx]
-        confidence = float(prediction[0][emotion_idx])
-        
-        
-        save_emotion(email, emotion, confidence, model_type, session_id)
-        
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        label = f"{emotion} ({confidence:.2f})"
-        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    except Exception as e:
+        print(f"Error in processing frame: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Draw error message on frame
+        cv2.putText(frame, "Error processing frame", (30, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
     
     return frame
+
+@app.route('/check-models')
+def check_models():
+    if not session.get('user'):
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Look for models in multiple directories
+    model_files = []
+    
+    # Check in current directory and subdirectories
+    for root, dirs, files in os.walk(os.getcwd()):
+        for file in files:
+            if file.endswith('.keras') or file.endswith('.h5'):
+                rel_path = os.path.relpath(os.path.join(root, file), os.getcwd())
+                model_files.append(rel_path)
+    
+    return jsonify({
+        "available_models": model_files,
+        "cwd": os.getcwd()
+    })
+    
 
 def generate_frames(email, model_type, session_id):
     cap = cv2.VideoCapture(0)
@@ -307,6 +427,9 @@ def logout():
 
 @app.route('/check-auth')
 def check_auth():
+    if not session.get('user'):
+        return jsonify({"error": "Unauthorized"}), 401
+    
     user = session.get('user')
     if user:
         return jsonify({"status": "authenticated", "email": user})
@@ -316,42 +439,82 @@ def check_auth():
 def index():
     return jsonify({"status": "running"})
 
+@app.route('/model-status', methods=['GET'])
+def model_status():
+    # Ensure we return proper JSON content
+    try:
+        return jsonify({
+            "loaded": model is not None,
+            "model_info": str(model.name) if model is not None else None
+        })
+    except Exception as e:
+        print(f"Error in model-status endpoint: {str(e)}")
+        return jsonify({
+            "loaded": False,
+            "error": str(e)
+        })
+
 @app.route('/load-model', methods=['POST'])
 def load_model_endpoint():
-    if not session.get('user'):
-        return jsonify({"error": "Unauthorized"}), 401
-        
     try:
         data = request.get_json()
         model_path = data.get('modelPath')
         
-        print(f"Attempting to load model from: {model_path}")  
-        print(f"Current working directory: {os.getcwd()}")     
-        
         if not model_path:
             return jsonify({"error": "Model path not provided"}), 400
-            
-        success = load_model_file(model_path)
+        
+        # Validate and fix model path
+        valid_path = validate_model_path(model_path)
+        if not valid_path:
+            return jsonify({"error": f"Model file not found at {model_path} or any expected location"}), 404
+        
+        print(f"Validated model path: {valid_path}")
+        success = load_model_file(valid_path)
         
         if success:
-            return jsonify({"status": "Model loaded successfully"})
+            return jsonify({
+                "status": "success", 
+                "message": "Model loaded successfully",
+                "path": valid_path
+            })
         else:
-            return jsonify({"error": "model"}), 500
+            return jsonify({"error": "Failed to load model"}), 500
             
     except Exception as e:
+        print(f"Exception loading model: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
+    
 @app.route('/video_feed')
 def video_feed():
-    if not session.get('user'):
-        return jsonify({"error": "Unauthorized"}), 401
+    # For local testing, comment this out
+    # if not session.get('user'):
+    #     return jsonify({"error": "Unauthorized"}), 401
     
     session_id = request.args.get('session_id')
-    if not session_id or session_id not in active_sessions:
+    model_type = request.args.get('model_type', 'unknown')
+    
+    # Allow video feed without session for preview purposes
+    if not session_id:
+        # Just return a preview or message frame
+        preview_frame = create_preview_frame("Start a session to begin emotion detection")
+        _, buffer = cv2.imencode('.jpg', preview_frame)
+        frame_bytes = buffer.tobytes()
+        
+        response = Response(
+            (b'--frame\r\n'
+             b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'),
+            mimetype='multipart/x-mixed-replace; boundary=frame'
+        )
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+    
+    # Check for valid session when session_id is provided
+    if session_id not in active_sessions:
         return jsonify({"error": "Invalid session"}), 400
     
-    email = session['user']
-    model_type = request.args.get('model_type', 'unknown')
+    email = session.get('user', 'test@example.com')  # Provide a default email for testing
     
     response = Response(
         generate_frames(email, model_type, session_id),
@@ -360,14 +523,29 @@ def video_feed():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+# Add this helper function to create a preview frame with text
+def create_preview_frame(text):
+    # Create a black image
+    frame = np.zeros((480, 640, 3), np.uint8)
+    
+    # Add text to the image
+    cv2.putText(frame, text, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    
+    return frame
+
 @app.route('/start-session', methods=['POST'])
 def start_session():
-    if not session.get('user'):
-        return jsonify({"error": "Unauthorized"}), 401
+    # For local testing, comment this out
+    # if not session.get('user'):
+    #     return jsonify({"error": "Unauthorized"}), 401
+    
+    # Check if model is loaded
+    if model is None:
+        return jsonify({"error": "No model loaded. Please load a model first."}), 400
     
     session_id = str(uuid.uuid4())
     active_sessions[session_id] = {
-        "user": session["user"],
+        "user": session.get("user", "test@example.com"),  # Provide a default email for testing
         "start_time": datetime.now(),
         "emotions": []
     }
@@ -376,6 +554,9 @@ def start_session():
 
 @app.route('/stop-session', methods=['POST'])
 def stop_session():
+    if not session.get('user'):
+        return jsonify({"error": "Unauthorized"}), 401
+    
     data = request.get_json()
     session_id = data.get("sessionId")
 
@@ -425,26 +606,39 @@ def stop_session():
 
 @app.after_request
 def after_request(response):
-    # Get the origin from the request
-    origin = request.headers.get('Origin')
-    allowed_origins = [
-        "http://localhost:5173",
-        "https://emotion-detector-git-main-johan-ahmeds-projects.vercel.app",
-        "https://emotion-detector.vercel.app",
-        "https://your-app-name.vercel.app"  # Replace with your actual Vercel domain
-    ]
-    
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
+    # Handle preflight OPTIONS requests
+    if request.method == "OPTIONS":
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '3600')
+    # For regular requests
+    else:
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
     
     return response
 
 @app.route('/status')
 def status():
+    if not session.get('user'):
+        return jsonify({"error": "Unauthorized"}), 401
+    
     return jsonify({"status": "running"})
 
 if __name__ == '__main__':
+    # Attempt to load a default model if available
+    default_model_paths = [
+        os.path.join(os.getcwd(), 'frontend', 'my_model.keras'),
+        os.path.join(os.getcwd(), 'my_model.keras'),
+        os.path.join(os.getcwd(), 'backend', 'models', 'my_model.keras')
+    ]
+    
+    for path in default_model_paths:
+        if os.path.exists(path):
+            print(f"Loading default model from: {path}")
+            load_model_file(path)
+            break
+    
     app.run(debug=True, host='0.0.0.0', port=5005)
